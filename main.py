@@ -14,10 +14,10 @@ WINDOW_HEIGHT = 800
 FPS = 60
 GENERATION_TIME_LIMIT = 15  # Time limit in seconds for each generation
 
-# Starting position for cars
-START_X = 250
-START_Y = 400
-START_ANGLE = 0
+# Updated starting position for cars
+START_X = 600  # Center of track horizontally
+START_Y = 600  # Slightly above bottom middle of track
+START_ANGLE = 180  # Facing upward (270 degrees points up in pygame coordinates)
 
 # Colors
 WHITE = (255, 255, 255)
@@ -61,6 +61,9 @@ class Track:
         self.segment_lengths = self._calculate_segment_lengths()
         self.total_track_length = sum(self.segment_lengths)
 
+        # Calculate track directions at each segment
+        self.segment_directions = self._calculate_segment_directions()
+
     def _generate_racing_line(self):
         # Calculate middle points between outer and inner track boundaries
         middle_points = []
@@ -96,6 +99,17 @@ class Track:
         racing_line.append(racing_line[0])
         return racing_line
 
+    def _calculate_segment_directions(self):
+        directions = []
+        for i in range(len(self.racing_line) - 1):
+            p1 = self.racing_line[i]
+            p2 = self.racing_line[i + 1]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            angle = math.degrees(math.atan2(dy, dx))
+            directions.append(angle)
+        return directions
+
     def _calculate_segment_lengths(self):
         lengths = []
         for i in range(len(self.racing_line) - 1):
@@ -106,25 +120,22 @@ class Track:
         return lengths
 
     def get_progress_on_track(self, x, y):
-        # Find closest point on racing line and calculate progress
         min_dist = float('inf')
         closest_segment = 0
         progress_in_segment = 0
+        segment_direction = 0
 
         for i in range(len(self.racing_line) - 1):
             p1 = self.racing_line[i]
             p2 = self.racing_line[i + 1]
 
-            # Calculate closest point on line segment
             segment_vec = (p2[0] - p1[0], p2[1] - p1[1])
             point_vec = (x - p1[0], y - p1[1])
             segment_length = self.segment_lengths[i]
 
-            # Calculate projection
             dot_product = (point_vec[0] * segment_vec[0] + point_vec[1] * segment_vec[1])
             t = max(0, min(1, dot_product / (segment_length * segment_length)))
 
-            # Find closest point
             closest_x = p1[0] + t * segment_vec[0]
             closest_y = p1[1] + t * segment_vec[1]
 
@@ -134,12 +145,12 @@ class Track:
                 min_dist = dist
                 closest_segment = i
                 progress_in_segment = t
+                segment_direction = self.segment_directions[i]
 
-        # Calculate total progress (0 to 1)
         progress = (sum(self.segment_lengths[:closest_segment]) +
                     progress_in_segment * self.segment_lengths[closest_segment]) / self.total_track_length
 
-        return progress, min_dist
+        return progress, min_dist, segment_direction
 
     def draw(self, screen):
         # Draw track boundaries
@@ -172,6 +183,7 @@ class Car:
         self.sensor_readings = []
         self.last_progress = 0
         self.stuck_time = 0
+        self.wrong_direction_time = 0
 
     def get_sensor_readings(self, track):
         readings = []
@@ -212,6 +224,18 @@ class Car:
         return (point_in_polygon(x, y, track.outer_points) and
                 not point_in_polygon(x, y, track.inner_points))
 
+    def is_moving_in_wrong_direction(self, track_direction):
+        # Get car's movement direction
+        car_direction = self.angle
+
+        # Calculate the difference between car direction and track direction
+        angle_diff = (car_direction - track_direction) % 360
+        if angle_diff > 180:
+            angle_diff = 360 - angle_diff
+
+        # Consider the car to be going in the wrong direction if it's more than 90 degrees off
+        return angle_diff > 90
+
     def update(self, track):
         if not self.alive:
             return
@@ -242,8 +266,17 @@ class Car:
             self.alive = False
             return
 
-        # Update progress
-        progress, distance_from_racing_line = track.get_progress_on_track(self.x, self.y)
+        # Update progress and check direction
+        progress, distance_from_racing_line, track_direction = track.get_progress_on_track(self.x, self.y)
+
+        # Check if moving in wrong direction
+        if self.is_moving_in_wrong_direction(track_direction):
+            self.wrong_direction_time += 1
+            if self.wrong_direction_time > FPS * 2:  # Kill car if going wrong way for 2 seconds
+                self.alive = False
+                return
+        else:
+            self.wrong_direction_time = 0
 
         # Detect if car completed a lap
         if progress < 0.1 and self.last_progress > 0.9:
@@ -272,10 +305,13 @@ class Car:
         progress_fitness = self.best_progress * 1000
         lap_fitness = self.laps_completed * 2000
 
-        # Speed bonus
-        speed_bonus = max(0, self.speed) * 10
+        # Speed bonus (only if moving in the right direction)
+        speed_bonus = max(0, self.speed) * 10 if self.wrong_direction_time == 0 else 0
 
-        return progress_fitness + lap_fitness + speed_bonus
+        # Direction penalty
+        direction_penalty = self.wrong_direction_time * 5
+
+        return progress_fitness + lap_fitness + speed_bonus - direction_penalty
 
     def draw(self, screen):
         if not self.alive:
@@ -290,7 +326,9 @@ class Car:
             (self.x + math.cos(math.radians(self.angle + 240)) * 10,
              self.y + math.sin(math.radians(self.angle + 240)) * 10)
         ]
-        pygame.draw.polygon(screen, GREEN if self.alive else RED, car_points)
+        # Color the car based on direction (green for correct, yellow for wrong direction)
+        car_color = YELLOW if self.wrong_direction_time > 0 else GREEN
+        pygame.draw.polygon(screen, car_color, car_points)
 
         # Draw sensors
         for i, reading in enumerate(self.sensor_readings):
