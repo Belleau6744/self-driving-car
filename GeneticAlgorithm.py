@@ -42,9 +42,11 @@ class GeneticAlgorithm:
         # Calculate fitness for each car
         for car in self.cars:
             car.fitness = car.calculate_fitness()
+            print(f"Car fitness: {car.fitness}")  # Debug output
 
         # Update best fitness
         current_best = max(car.fitness for car in self.cars)
+        print(f"Current best fitness: {current_best}")  # Debug output
         self.best_fitness = max(self.best_fitness, current_best)
 
         # Sort cars by fitness

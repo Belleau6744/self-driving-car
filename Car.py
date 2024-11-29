@@ -227,13 +227,15 @@ class Car:
         max_preferred_distance = 50
         racing_line_reward = max(0, 200 * (1 - (self.avg_racing_line_distance / max_preferred_distance)))
 
-        return (progress_fitness +
-                lap_time_fitness +
-                multi_lap_bonus +
-                speed_bonus -
-                direction_penalty -
-                backward_penalty +
-                racing_line_reward)
+        fitness = (progress_fitness +
+                   lap_time_fitness +
+                   multi_lap_bonus +
+                   speed_bonus -
+                   direction_penalty -
+                   backward_penalty +
+                   racing_line_reward)
+        print(f"Fitness for car: {fitness}")  # Debug output
+        return fitness
 
     def draw(self, screen):
         if not self.alive:
